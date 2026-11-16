@@ -26,7 +26,7 @@ export default function Home() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1rem', marginTop: '2rem' }}>
           {books.map((b) => (
-            <Link key={b._id} to={`/books/${b._id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+            <Link key={b.id} to={`/books/${b.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
               <div style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '1rem', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
                 <h3>{b.title}</h3>
                 <p style={{ color: '#555' }}>{b.author}</p>
