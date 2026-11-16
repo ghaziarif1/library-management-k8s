@@ -1,0 +1,161 @@
+services:
+  # ============ Bases de données ============
+  mongo:
+    image: mongo:7
+    container_name: library-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: library_books
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - library-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: library-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: library_users
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - library-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============ Microservices backend ============
+  ms1-books:
+    build:
+      context: ./ms1-books
+    image: ghaazii/library-ms1-books:v1
+    container_name: library-ms1-books
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      MONGO_URI: mongodb://mongo:27017/library_books
+    ports:
+      - "3001:3001"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - library-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ms2-users:
+    build:
+      context: ./ms2-users
+    image: ghaazii/library-ms2-users:v1
+    container_name: library-ms2-users
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: library_users
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - library-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ms3-loans:
+    build:
+      context: ./ms3-loans
+    image: ghaazii/library-ms3-loans:v1
+    container_name: library-ms3-loans
+    restart: unless-stopped
+    environment:
+      PORT: 3003
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: library_loans
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      BOOKS_SERVICE_URL: http://ms1-books:3001
+      USERS_SERVICE_URL: http://ms2-users:3002
+    ports:
+      - "3003:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ms1-books:
+        condition: service_healthy
+      ms2-users:
+        condition: service_healthy
+    networks:
+      - library-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3003/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ============ Frontend ============
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # On garde localhost car le JS s'exécute dans le navigateur de l'utilisateur
+        VITE_BOOKS_API_URL: http://localhost:3001
+        VITE_USERS_API_URL: http://localhost:3002
+        VITE_LOANS_API_URL: http://localhost:3003
+    image: ghaazii/library-frontend:v1
+    container_name: library-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      ms1-books:
+        condition: service_healthy
+      ms2-users:
+        condition: service_healthy
+      ms3-loans:
+        condition: service_healthy
+    networks:
+      - library-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+# ============ Réseau et volumes ============
+networks:
+  library-net:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  postgres-data:
